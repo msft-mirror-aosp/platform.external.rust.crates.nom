@@ -1,0 +1,19 @@
+name: "nom"
+description: "nom is a parser combinators library written in Rust. Its goal is to provide tools to build safe parsers without compromising the speed or memory consumption. To that end, it uses extensively Rust\'s strong typing and memory safety to produce fast and correct parsers, and provides functions, macros and traits to abstract most of the error prone plumbing."
+third_party {
+  url {
+    type: HOMEPAGE
+    value: "https://crates.io/crates/nom"
+  }
+  url {
+    type: GIT
+    value: "https://github.com/Geal/nom"
+  }
+  version: "5.1.1"
+  license_type: NOTICE
+  last_upgrade_date {
+    year: 2020
+    month: 3
+    day: 31
+  }
+}
