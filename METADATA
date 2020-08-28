@@ -6,8 +6,8 @@ third_party {
     value: "https://crates.io/crates/nom"
   }
   url {
-    type: GIT
-    value: "https://github.com/Geal/nom"
+    type: ARCHIVE
+    value: "https://static.crates.io/crates/nom/nom-5.1.1.crate"
   }
   version: "5.1.1"
   license_type: NOTICE
