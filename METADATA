@@ -1,5 +1,5 @@
 name: "nom"
-description: "nom is a parser combinators library written in Rust. Its goal is to provide tools to build safe parsers without compromising the speed or memory consumption. To that end, it uses extensively Rust\'s strong typing and memory safety to produce fast and correct parsers, and provides functions, macros and traits to abstract most of the error prone plumbing."
+description: "A byte-oriented, zero-copy, parser combinators library"
 third_party {
   url {
     type: HOMEPAGE
@@ -7,13 +7,13 @@ third_party {
   }
   url {
     type: ARCHIVE
-    value: "https://static.crates.io/crates/nom/nom-5.1.1.crate"
+    value: "https://static.crates.io/crates/nom/nom-5.1.2.crate"
   }
-  version: "5.1.1"
+  version: "5.1.2"
   license_type: NOTICE
   last_upgrade_date {
     year: 2020
-    month: 3
-    day: 31
+    month: 10
+    day: 26
   }
 }
