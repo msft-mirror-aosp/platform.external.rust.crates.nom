@@ -5,10 +5,28 @@
       "name": "keystore2_test"
     },
     {
+      "name": "legacykeystore_test"
+    },
+    {
+      "name": "libapkverify.integration_test"
+    },
+    {
+      "name": "libapkverify.test"
+    },
+    {
       "name": "libsqlite3-sys_device_test_src_lib"
     },
     {
-      "name": "legacykeystore_test"
+      "name": "libsqlite3_bindgen_test"
+    },
+    {
+      "name": "microdroid_manager_test"
+    },
+    {
+      "name": "oid-registry_device_test_src_lib"
+    },
+    {
+      "name": "rusticata-macros_device_test_src_lib"
     }
   ]
 }
