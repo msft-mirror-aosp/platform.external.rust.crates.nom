@@ -1,14 +1,36 @@
 //! Parsers recognizing numbers, streaming version
 
 use crate::branch::alt;
-use crate::character::streaming::{char, digit1};
+use crate::bytes::streaming::tag;
+use crate::character::streaming::{char, digit1, sign};
 use crate::combinator::{cut, map, opt, recognize};
 use crate::error::{ErrorKind, ParseError};
 use crate::internal::*;
 use crate::lib::std::ops::{RangeFrom, RangeTo};
 use crate::sequence::{pair, tuple};
-use crate::traits::{AsChar, InputIter, InputLength, InputTakeAtPosition};
-use crate::traits::{Offset, Slice};
+use crate::traits::{
+  AsBytes, AsChar, Compare, InputIter, InputLength, InputTake, InputTakeAtPosition, Offset, Slice,
+};
+
+#[doc(hidden)]
+macro_rules! map(
+  // Internal parser, do not use directly
+  (__impl $i:expr, $submac:ident!( $($args:tt)* ), $g:expr) => (
+    $crate::combinator::map(move |i| {$submac!(i, $($args)*)}, $g).parse($i)
+  );
+  ($i:expr, $submac:ident!( $($args:tt)* ), $g:expr) => (
+    map!(__impl $i, $submac!($($args)*), $g)
+  );
+  ($i:expr, $f:expr, $g:expr) => (
+    map!(__impl $i, call!($f), $g)
+  );
+);
+
+#[doc(hidden)]
+macro_rules! call (
+  ($i:expr, $fun:expr) => ( $fun( $i ) );
+  ($i:expr, $fun:expr, $($args:expr),* ) => ( $fun( $i, $($args),* ) );
+);
 
 /// Recognizes an unsigned 1 byte integer.
 ///
@@ -1347,7 +1369,6 @@ pub fn hex_u32<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8]
 /// assert_eq!(parser("123K-01"), Ok(("K-01", "123")));
 /// assert_eq!(parser("abc"), Err(Err::Error(("abc", ErrorKind::Char))));
 /// ```
-#[allow(unused_imports)]
 #[rustfmt::skip]
 pub fn recognize_float<T, E:ParseError<T>>(input: T) -> IResult<T, T, E>
 where
@@ -1374,146 +1395,187 @@ where
   )(input)
 }
 
-/// Recognizes floating point number in a byte string and returns a `f32`.
+/// Recognizes a floating point number in text format and returns the integer, fraction and exponent parts of the input data
 ///
-/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if it reaches the end of input.
+/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if there is not enough data.
+///
+pub fn recognize_float_parts<T, E: ParseError<T>>(input: T) -> IResult<T, (bool, T, T, i32), E>
+where
+  T: Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
+  T: Clone + Offset,
+  T: InputIter + crate::traits::ParseTo<i32>,
+  <T as InputIter>::Item: AsChar,
+  T: InputTakeAtPosition + InputTake + InputLength,
+  <T as InputTakeAtPosition>::Item: AsChar,
+  T: for<'a> Compare<&'a [u8]>,
+  T: AsBytes,
+{
+  let (i, sign) = sign(input.clone())?;
+
+  //let (i, zeroes) = take_while(|c: <T as InputTakeAtPosition>::Item| c.as_char() == '0')(i)?;
+  let (i, zeroes) = match i.as_bytes().iter().position(|c| *c != b'0' as u8) {
+    Some(index) => i.take_split(index),
+    None => i.take_split(i.input_len()),
+  };
+
+  //let (i, mut integer) = digit0(i)?;
+  let (i, mut integer) = match i
+    .as_bytes()
+    .iter()
+    .position(|c| !(*c >= b'0' as u8 && *c <= b'9' as u8))
+  {
+    Some(index) => i.take_split(index),
+    None => i.take_split(i.input_len()),
+  };
+
+  if integer.input_len() == 0 && zeroes.input_len() > 0 {
+    // keep the last zero if integer is empty
+    integer = zeroes.slice(zeroes.input_len() - 1..);
+  }
+
+  let (i, opt_dot) = opt(tag(&b"."[..]))(i)?;
+  let (i, fraction) = if opt_dot.is_none() {
+    let i2 = i.clone();
+    (i2, i.slice(..0))
+  } else {
+    // match number, trim right zeroes
+    let mut zero_count = 0usize;
+    let mut position = None;
+    for (pos, c) in i.as_bytes().iter().enumerate() {
+      if *c >= b'0' as u8 && *c <= b'9' as u8 {
+        if *c == b'0' as u8 {
+          zero_count += 1;
+        } else {
+          zero_count = 0;
+        }
+      } else {
+        position = Some(pos);
+        break;
+      }
+    }
+
+    let position = match position {
+      Some(p) => p,
+      None => return Err(Err::Incomplete(Needed::new(1))),
+    };
+
+    let index = if zero_count == 0 {
+      position
+    } else if zero_count == position {
+      position - zero_count + 1
+    } else {
+      position - zero_count
+    };
+
+    (i.slice(position..), i.slice(..index))
+  };
+
+  if integer.input_len() == 0 && fraction.input_len() == 0 {
+    return Err(Err::Error(E::from_error_kind(input, ErrorKind::Float)));
+  }
+
+  let i2 = i.clone();
+  let (i, e) = match i.as_bytes().iter().next() {
+    Some(b'e') => (i.slice(1..), true),
+    Some(b'E') => (i.slice(1..), true),
+    _ => (i, false),
+  };
+
+  let (i, exp) = if e {
+    cut(crate::character::streaming::i32)(i)?
+  } else {
+    (i2, 0)
+  };
+
+  Ok((i, (sign, integer, fraction, exp)))
+}
+
+/// Recognizes floating point number in text format and returns a f32.
+///
+/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if there is not enough data.
+///
 /// ```rust
 /// # use nom::{Err, error::ErrorKind, Needed};
-/// use nom::number::streaming::float;
+/// # use nom::Needed::Size;
+/// use nom::number::complete::float;
 ///
 /// let parser = |s| {
 ///   float(s)
 /// };
 ///
-/// assert_eq!(parser("11e-1;"), Ok((";", 1.1)));
-/// assert_eq!(parser("123E-02;"), Ok((";", 1.23)));
+/// assert_eq!(parser("11e-1"), Ok(("", 1.1)));
+/// assert_eq!(parser("123E-02"), Ok(("", 1.23)));
 /// assert_eq!(parser("123K-01"), Ok(("K-01", 123.0)));
-/// assert_eq!(parser("abc"), Err(Err::Error(("abc", ErrorKind::Char))));
+/// assert_eq!(parser("abc"), Err(Err::Error(("abc", ErrorKind::Float))));
 /// ```
-#[cfg(not(feature = "lexical"))]
 pub fn float<T, E: ParseError<T>>(input: T) -> IResult<T, f32, E>
 where
   T: Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
   T: Clone + Offset,
-  T: InputIter + InputLength + crate::traits::ParseTo<f32>,
+  T: InputIter + InputLength + InputTake + crate::traits::ParseTo<i32>,
   <T as InputIter>::Item: AsChar,
+  <T as InputIter>::IterElem: Clone,
   T: InputTakeAtPosition,
   <T as InputTakeAtPosition>::Item: AsChar,
+  T: AsBytes,
+  T: for<'a> Compare<&'a [u8]>,
 {
-  match recognize_float(input) {
-    Err(e) => Err(e),
-    Ok((i, s)) => match s.parse_to() {
-      Some(n) => Ok((i, n)),
-      None => Err(Err::Error(E::from_error_kind(i, ErrorKind::Float))),
-    },
+  let (i, (sign, integer, fraction, exponent)) = recognize_float_parts(input)?;
+
+  let mut float: f32 = minimal_lexical::parse_float(
+    integer.as_bytes().iter(),
+    fraction.as_bytes().iter(),
+    exponent,
+  );
+  if !sign {
+    float = -float;
   }
+
+  Ok((i, float))
 }
 
-/// Recognizes floating point number in a byte string and returns a `f32`.
+/// Recognizes floating point number in text format and returns a f32.
 ///
-/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if it reaches the end of input.
+/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if there is not enough data.
+///
 /// ```rust
 /// # use nom::{Err, error::ErrorKind, Needed};
-/// use nom::number::streaming::float;
+/// # use nom::Needed::Size;
+/// use nom::number::complete::float;
 ///
 /// let parser = |s| {
 ///   float(s)
 /// };
 ///
-/// assert_eq!(parser("11e-1;"), Ok((";", 1.1)));
-/// assert_eq!(parser("123E-02;"), Ok((";", 1.23)));
+/// assert_eq!(parser("11e-1"), Ok(("", 1.1)));
+/// assert_eq!(parser("123E-02"), Ok(("", 1.23)));
 /// assert_eq!(parser("123K-01"), Ok(("K-01", 123.0)));
 /// assert_eq!(parser("abc"), Err(Err::Error(("abc", ErrorKind::Float))));
 /// ```
-///
-/// this function uses the lexical-core crate for float parsing by default, you
-/// can deactivate it by removing the "lexical" feature
-#[cfg(feature = "lexical")]
-pub fn float<T, E: ParseError<T>>(input: T) -> IResult<T, f32, E>
-where
-  T: crate::traits::AsBytes + InputLength + Slice<RangeFrom<usize>>,
-{
-  match ::lexical_core::parse_partial(input.as_bytes()) {
-    Ok((value, processed)) => {
-      if processed == input.input_len() {
-        Err(Err::Incomplete(Needed::Unknown))
-      } else {
-        Ok((input.slice(processed..), value))
-      }
-    }
-    Err(_) => Err(Err::Error(E::from_error_kind(input, ErrorKind::Float))),
-  }
-}
-
-/// Recognizes floating point number in a byte string and returns a `f64`.
-///
-/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if it reaches the end of input.
-/// ```rust
-/// # use nom::{Err, error::ErrorKind, Needed};
-/// use nom::number::streaming::double;
-///
-/// let parser = |s| {
-///   double(s)
-/// };
-///
-/// assert_eq!(parser("11e-1;"), Ok((";", 1.1)));
-/// assert_eq!(parser("123E-02;"), Ok((";", 1.23)));
-/// assert_eq!(parser("123K-01"), Ok(("K-01", 123.0)));
-/// assert_eq!(parser("abc"), Err(Err::Error(("abc", ErrorKind::Char))));
-/// ```
-#[cfg(not(feature = "lexical"))]
 pub fn double<T, E: ParseError<T>>(input: T) -> IResult<T, f64, E>
 where
   T: Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
   T: Clone + Offset,
-  T: InputIter + InputLength + crate::traits::ParseTo<f64>,
+  T: InputIter + InputLength + InputTake + crate::traits::ParseTo<i32>,
   <T as InputIter>::Item: AsChar,
+  <T as InputIter>::IterElem: Clone,
   T: InputTakeAtPosition,
   <T as InputTakeAtPosition>::Item: AsChar,
+  T: AsBytes,
+  T: for<'a> Compare<&'a [u8]>,
 {
-  match recognize_float(input) {
-    Err(e) => Err(e),
-    Ok((i, s)) => match s.parse_to() {
-      Some(n) => Ok((i, n)),
-      None => Err(Err::Error(E::from_error_kind(i, ErrorKind::Float))),
-    },
-  }
-}
+  let (i, (sign, integer, fraction, exponent)) = recognize_float_parts(input)?;
 
-/// Recognizes floating point number in a byte string and returns a `f64`.
-///
-/// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if it reaches the end of input.
-/// ```rust
-/// # use nom::{Err, error::ErrorKind, Needed};
-/// use nom::number::streaming::double;
-///
-/// let parser = |s| {
-///   double(s)
-/// };
-///
-/// assert_eq!(parser("11e-1;"), Ok((";", 1.1)));
-/// assert_eq!(parser("123E-02;"), Ok((";", 1.23)));
-/// assert_eq!(parser("123K-01"), Ok(("K-01", 123.0)));
-/// assert_eq!(parser("abc"), Err(Err::Error(("abc", ErrorKind::Float))));
-/// ```
-///
-/// this function uses the lexical-core crate for float parsing by default, you
-/// can deactivate it by removing the "lexical" feature
-#[cfg(feature = "lexical")]
-pub fn double<T, E: ParseError<T>>(input: T) -> IResult<T, f64, E>
-where
-  T: crate::traits::AsBytes + InputLength + Slice<RangeFrom<usize>>,
-{
-  match ::lexical_core::parse_partial(input.as_bytes()) {
-    Ok((value, processed)) => {
-      if processed == input.input_len() {
-        Err(Err::Incomplete(Needed::Unknown))
-      } else {
-        Ok((input.slice(processed..), value))
-      }
-    }
-    Err(_) => Err(Err::Error(E::from_error_kind(input, ErrorKind::Float))),
+  let mut float: f64 = minimal_lexical::parse_float(
+    integer.as_bytes().iter(),
+    fraction.as_bytes().iter(),
+    exponent,
+  );
+  if !sign {
+    float = -float;
   }
+
+  Ok((i, float))
 }
 
 #[cfg(test)]
@@ -1521,6 +1583,8 @@ mod tests {
   use super::*;
   use crate::error::ErrorKind;
   use crate::internal::{Err, Needed};
+  use crate::traits::ParseTo;
+  use proptest::prelude::*;
 
   macro_rules! assert_parse(
     ($left: expr, $right: expr) => {
@@ -1982,5 +2046,114 @@ mod tests {
       recognize_float(remaining_exponent),
       Err(Err::Incomplete(Needed::new(1)))
     );
+  }
+
+  #[test]
+  fn configurable_endianness() {
+    use crate::number::Endianness;
+
+    fn be_tst16(i: &[u8]) -> IResult<&[u8], u16> {
+      u16(Endianness::Big)(i)
+    }
+    fn le_tst16(i: &[u8]) -> IResult<&[u8], u16> {
+      u16(Endianness::Little)(i)
+    }
+    assert_eq!(be_tst16(&[0x80, 0x00]), Ok((&b""[..], 32_768_u16)));
+    assert_eq!(le_tst16(&[0x80, 0x00]), Ok((&b""[..], 128_u16)));
+
+    fn be_tst32(i: &[u8]) -> IResult<&[u8], u32> {
+      u32(Endianness::Big)(i)
+    }
+    fn le_tst32(i: &[u8]) -> IResult<&[u8], u32> {
+      u32(Endianness::Little)(i)
+    }
+    assert_eq!(
+      be_tst32(&[0x12, 0x00, 0x60, 0x00]),
+      Ok((&b""[..], 302_014_464_u32))
+    );
+    assert_eq!(
+      le_tst32(&[0x12, 0x00, 0x60, 0x00]),
+      Ok((&b""[..], 6_291_474_u32))
+    );
+
+    fn be_tst64(i: &[u8]) -> IResult<&[u8], u64> {
+      u64(Endianness::Big)(i)
+    }
+    fn le_tst64(i: &[u8]) -> IResult<&[u8], u64> {
+      u64(Endianness::Little)(i)
+    }
+    assert_eq!(
+      be_tst64(&[0x12, 0x00, 0x60, 0x00, 0x12, 0x00, 0x80, 0x00]),
+      Ok((&b""[..], 1_297_142_246_100_992_000_u64))
+    );
+    assert_eq!(
+      le_tst64(&[0x12, 0x00, 0x60, 0x00, 0x12, 0x00, 0x80, 0x00]),
+      Ok((&b""[..], 36_028_874_334_666_770_u64))
+    );
+
+    fn be_tsti16(i: &[u8]) -> IResult<&[u8], i16> {
+      i16(Endianness::Big)(i)
+    }
+    fn le_tsti16(i: &[u8]) -> IResult<&[u8], i16> {
+      i16(Endianness::Little)(i)
+    }
+    assert_eq!(be_tsti16(&[0x00, 0x80]), Ok((&b""[..], 128_i16)));
+    assert_eq!(le_tsti16(&[0x00, 0x80]), Ok((&b""[..], -32_768_i16)));
+
+    fn be_tsti32(i: &[u8]) -> IResult<&[u8], i32> {
+      i32(Endianness::Big)(i)
+    }
+    fn le_tsti32(i: &[u8]) -> IResult<&[u8], i32> {
+      i32(Endianness::Little)(i)
+    }
+    assert_eq!(
+      be_tsti32(&[0x00, 0x12, 0x60, 0x00]),
+      Ok((&b""[..], 1_204_224_i32))
+    );
+    assert_eq!(
+      le_tsti32(&[0x00, 0x12, 0x60, 0x00]),
+      Ok((&b""[..], 6_296_064_i32))
+    );
+
+    fn be_tsti64(i: &[u8]) -> IResult<&[u8], i64> {
+      i64(Endianness::Big)(i)
+    }
+    fn le_tsti64(i: &[u8]) -> IResult<&[u8], i64> {
+      i64(Endianness::Little)(i)
+    }
+    assert_eq!(
+      be_tsti64(&[0x00, 0xFF, 0x60, 0x00, 0x12, 0x00, 0x80, 0x00]),
+      Ok((&b""[..], 71_881_672_479_506_432_i64))
+    );
+    assert_eq!(
+      le_tsti64(&[0x00, 0xFF, 0x60, 0x00, 0x12, 0x00, 0x80, 0x00]),
+      Ok((&b""[..], 36_028_874_334_732_032_i64))
+    );
+  }
+
+  fn parse_f64(i: &str) -> IResult<&str, f64, ()> {
+    match recognize_float(i) {
+      Err(e) => Err(e),
+      Ok((i, s)) => {
+        if s.is_empty() {
+          return Err(Err::Error(()));
+        }
+        match s.parse_to() {
+          Some(n) => Ok((i, n)),
+          None => Err(Err::Error(())),
+        }
+      }
+    }
+  }
+
+  proptest! {
+    #[test]
+    #[cfg(feature = "std")]
+    fn floats(s in "\\PC*") {
+        println!("testing {}", s);
+        let res1 = parse_f64(&s);
+        let res2 = double::<_, ()>(s.as_str());
+        assert_eq!(res1, res2);
+    }
   }
 }
