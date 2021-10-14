@@ -1,7 +1,7 @@
 //! Combinators applying their child parser multiple times
 
-#[macro_use]
-mod macros;
+#[cfg(test)]
+mod tests;
 
 use crate::error::ErrorKind;
 use crate::error::ParseError;
@@ -39,18 +39,20 @@ use core::num::NonZeroUsize;
 #[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
 pub fn many0<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   E: ParseError<I>,
 {
   move |mut i: I| {
     let mut acc = crate::lib::std::vec::Vec::with_capacity(4);
     loop {
+      let len = i.input_len();
       match f.parse(i.clone()) {
         Err(Err::Error(_)) => return Ok((i, acc)),
         Err(e) => return Err(e),
         Ok((i1, o)) => {
-          if i1 == i {
+          // infinite loop check: the parser must always consume
+          if i1.input_len() == len {
             return Err(Err::Error(E::from_error_kind(i, ErrorKind::Many0)));
           }
 
@@ -60,18 +62,6 @@ where
       }
     }
   }
-}
-// this implementation is used for type inference issues in macros
-#[doc(hidden)]
-#[cfg(feature = "alloc")]
-#[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
-pub fn many0c<I, O, E, F>(input: I, f: F) -> IResult<I, Vec<O>, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  E: ParseError<I>,
-{
-  many0(f)(input)
 }
 
 /// Runs the embedded parser until it fails and
@@ -104,7 +94,7 @@ where
 #[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
 pub fn many1<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   E: ParseError<I>,
 {
@@ -117,11 +107,13 @@ where
       i = i1;
 
       loop {
+        let len = i.input_len();
         match f.parse(i.clone()) {
           Err(Err::Error(_)) => return Ok((i, acc)),
           Err(e) => return Err(e),
           Ok((i1, o)) => {
-            if i1 == i {
+            // infinite loop check: the parser must always consume
+            if i1.input_len() == len {
               return Err(Err::Error(E::from_error_kind(i, ErrorKind::Many1)));
             }
 
@@ -132,19 +124,6 @@ where
       }
     }
   }
-}
-
-// this implementation is used for type inference issues in macros
-#[doc(hidden)]
-#[cfg(feature = "alloc")]
-#[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
-pub fn many1c<I, O, E, F>(input: I, f: F) -> IResult<I, Vec<O>, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  E: ParseError<I>,
-{
-  many1(f)(input)
 }
 
 /// Applies the parser `f` until the parser `g` produces
@@ -172,7 +151,7 @@ pub fn many_till<I, O, P, E, F, G>(
   mut g: G,
 ) -> impl FnMut(I) -> IResult<I, (Vec<O>, P), E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   G: Parser<I, P, E>,
   E: ParseError<I>,
@@ -180,6 +159,7 @@ where
   move |mut i: I| {
     let mut res = crate::lib::std::vec::Vec::new();
     loop {
+      let len = i.input_len();
       match g.parse(i.clone()) {
         Ok((i1, o)) => return Ok((i1, (res, o))),
         Err(Err::Error(_)) => {
@@ -187,8 +167,8 @@ where
             Err(Err::Error(err)) => return Err(Err::Error(E::append(i, ErrorKind::ManyTill, err))),
             Err(e) => return Err(e),
             Ok((i1, o)) => {
-              // loop trip must always consume (otherwise infinite loops)
-              if i1 == i {
+              // infinite loop check: the parser must always consume
+              if i1.input_len() == len {
                 return Err(Err::Error(E::from_error_kind(i1, ErrorKind::ManyTill)));
               }
 
@@ -201,20 +181,6 @@ where
       }
     }
   }
-}
-
-// this implementation is used for type inference issues in macros
-#[doc(hidden)]
-#[cfg(feature = "alloc")]
-#[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
-pub fn many_tillc<I, O, P, E, F, G>(i: I, f: F, g: G) -> IResult<I, (Vec<O>, P), E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  G: Fn(I) -> IResult<I, P, E>,
-  E: ParseError<I>,
-{
-  many_till(f, g)(i)
 }
 
 /// Alternates between two parsers to produce
@@ -245,7 +211,7 @@ pub fn separated_list0<I, O, O2, E, F, G>(
   mut f: F,
 ) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   G: Parser<I, O2, E>,
   E: ParseError<I>,
@@ -263,11 +229,13 @@ where
     }
 
     loop {
+      let len = i.input_len();
       match sep.parse(i.clone()) {
         Err(Err::Error(_)) => return Ok((i, res)),
         Err(e) => return Err(e),
         Ok((i1, _)) => {
-          if i1 == i {
+          // infinite loop check: the parser must always consume
+          if i1.input_len() == len {
             return Err(Err::Error(E::from_error_kind(i1, ErrorKind::SeparatedList)));
           }
 
@@ -283,20 +251,6 @@ where
       }
     }
   }
-}
-
-// this implementation is used for type inference issues in macros
-#[doc(hidden)]
-#[cfg(feature = "alloc")]
-#[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
-pub fn separated_list0c<I, O, O2, E, F, G>(i: I, sep: G, f: F) -> IResult<I, Vec<O>, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  G: Fn(I) -> IResult<I, O2, E>,
-  E: ParseError<I>,
-{
-  separated_list0(sep, f)(i)
 }
 
 /// Alternates between two parsers to produce
@@ -328,7 +282,7 @@ pub fn separated_list1<I, O, O2, E, F, G>(
   mut f: F,
 ) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   G: Parser<I, O2, E>,
   E: ParseError<I>,
@@ -346,11 +300,13 @@ where
     }
 
     loop {
+      let len = i.input_len();
       match sep.parse(i.clone()) {
         Err(Err::Error(_)) => return Ok((i, res)),
         Err(e) => return Err(e),
         Ok((i1, _)) => {
-          if i1 == i {
+          // infinite loop check: the parser must always consume
+          if i1.input_len() == len {
             return Err(Err::Error(E::from_error_kind(i1, ErrorKind::SeparatedList)));
           }
 
@@ -366,20 +322,6 @@ where
       }
     }
   }
-}
-
-// this implementation is used for type inference issues in macros
-#[doc(hidden)]
-#[cfg(feature = "alloc")]
-#[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
-pub fn separated_list1c<I, O, O2, E, F, G>(i: I, sep: G, f: F) -> IResult<I, Vec<O>, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  G: Fn(I) -> IResult<I, O2, E>,
-  E: ParseError<I>,
-{
-  separated_list1(sep, f)(i)
 }
 
 /// Repeats the embedded parser `n` times or until it fails
@@ -413,18 +355,22 @@ pub fn many_m_n<I, O, E, F>(
   mut parse: F,
 ) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   E: ParseError<I>,
 {
   move |mut input: I| {
-    let mut res = crate::lib::std::vec::Vec::with_capacity(min);
+    if min > max {
+      return Err(Err::Failure(E::from_error_kind(input, ErrorKind::ManyMN)));
+    }
 
+    let mut res = crate::lib::std::vec::Vec::with_capacity(min);
     for count in 0..max {
+      let len = input.input_len();
       match parse.parse(input.clone()) {
         Ok((tail, value)) => {
-          // do not allow parsers that do not consume input (causes infinite loops)
-          if tail == input {
+          // infinite loop check: the parser must always consume
+          if tail.input_len() == len {
             return Err(Err::Error(E::from_error_kind(input, ErrorKind::ManyMN)));
           }
 
@@ -448,18 +394,6 @@ where
   }
 }
 
-// this implementation is used for type inference issues in macros
-#[doc(hidden)]
-#[cfg(feature = "alloc")]
-pub fn many_m_nc<I, O, E, F>(i: I, m: usize, n: usize, f: F) -> IResult<I, Vec<O>, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  E: ParseError<I>,
-{
-  many_m_n(m, n, f)(i)
-}
-
 /// Repeats the embedded parser until it fails
 /// and returns the number of successful iterations.
 /// # Arguments
@@ -481,7 +415,7 @@ where
 /// ```
 pub fn many0_count<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, usize, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   E: ParseError<I>,
 {
@@ -491,10 +425,11 @@ where
 
     loop {
       let input_ = input.clone();
+      let len = input.input_len();
       match f.parse(input_) {
         Ok((i, _)) => {
-          //  loop trip must always consume (otherwise infinite loops)
-          if i == input {
+          // infinite loop check: the parser must always consume
+          if i.input_len() == len {
             return Err(Err::Error(E::from_error_kind(input, ErrorKind::Many0Count)));
           }
 
@@ -508,16 +443,6 @@ where
       }
     }
   }
-}
-
-#[doc(hidden)]
-pub fn many0_countc<I, O, E, F>(i: I, f: F) -> IResult<I, usize, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  E: ParseError<I>,
-{
-  many0_count(f)(i)
 }
 
 /// Repeats the embedded parser until it fails
@@ -543,7 +468,7 @@ where
 /// ```
 pub fn many1_count<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, usize, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   E: ParseError<I>,
 {
@@ -557,12 +482,14 @@ where
         let mut input = i1;
 
         loop {
+          let len = input.input_len();
           let input_ = input.clone();
           match f.parse(input_) {
             Err(Err::Error(_)) => return Ok((input, count)),
             Err(e) => return Err(e),
             Ok((i, _)) => {
-              if i == input {
+              // infinite loop check: the parser must always consume
+              if i.input_len() == len {
                 return Err(Err::Error(E::from_error_kind(i, ErrorKind::Many1Count)));
               }
 
@@ -574,16 +501,6 @@ where
       }
     }
   }
-}
-
-#[doc(hidden)]
-pub fn many1_countc<I, O, E, F>(i: I, f: F) -> IResult<I, usize, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  E: ParseError<I>,
-{
-  many1_count(f)(i)
 }
 
 /// Runs the embedded parser a specified number
@@ -695,7 +612,7 @@ where
 /// the results using a given function and initial value.
 /// # Arguments
 /// * `f` The parser to apply.
-/// * `init` The initial value.
+/// * `init` A function returning the initial value.
 /// * `g` The function that combines a result of `f` with
 ///       the current accumulator.
 /// ```rust
@@ -707,7 +624,7 @@ where
 /// fn parser(s: &str) -> IResult<&str, Vec<&str>> {
 ///   fold_many0(
 ///     tag("abc"),
-///     Vec::new(),
+///     Vec::new,
 ///     |mut acc: Vec<_>, item| {
 ///       acc.push(item);
 ///       acc
@@ -720,28 +637,29 @@ where
 /// assert_eq!(parser("123123"), Ok(("123123", vec![])));
 /// assert_eq!(parser(""), Ok(("", vec![])));
 /// ```
-pub fn fold_many0<I, O, E, F, G, R>(
+pub fn fold_many0<I, O, E, F, G, H, R>(
   mut f: F,
-  init: R,
+  mut init: H,
   mut g: G,
 ) -> impl FnMut(I) -> IResult<I, R, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   G: FnMut(R, O) -> R,
+  H: FnMut() -> R,
   E: ParseError<I>,
-  R: Clone,
 {
   move |i: I| {
-    let mut res = init.clone();
+    let mut res = init();
     let mut input = i;
 
     loop {
       let i_ = input.clone();
+      let len = input.input_len();
       match f.parse(i_) {
         Ok((i, o)) => {
-          // loop trip must always consume (otherwise infinite loops)
-          if i == input {
+          // infinite loop check: the parser must always consume
+          if i.input_len() == len {
             return Err(Err::Error(E::from_error_kind(input, ErrorKind::Many0)));
           }
 
@@ -759,25 +677,13 @@ where
   }
 }
 
-#[doc(hidden)]
-pub fn fold_many0c<I, O, E, F, G, R>(i: I, f: F, init: R, g: G) -> IResult<I, R, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  G: FnMut(R, O) -> R,
-  E: ParseError<I>,
-  R: Clone,
-{
-  fold_many0(f, init, g)(i)
-}
-
 /// Applies a parser until it fails and accumulates
 /// the results using a given function and initial value.
 /// Fails if the embedded parser does not succeed at least
 /// once.
 /// # Arguments
 /// * `f` The parser to apply.
-/// * `init` The initial value.
+/// * `init` A function returning the initial value.
 /// * `g` The function that combines a result of `f` with
 ///       the current accumulator.
 /// ```rust
@@ -789,7 +695,7 @@ where
 /// fn parser(s: &str) -> IResult<&str, Vec<&str>> {
 ///   fold_many1(
 ///     tag("abc"),
-///     Vec::new(),
+///     Vec::new,
 ///     |mut acc: Vec<_>, item| {
 ///       acc.push(item);
 ///       acc
@@ -802,21 +708,21 @@ where
 /// assert_eq!(parser("123123"), Err(Err::Error(Error::new("123123", ErrorKind::Many1))));
 /// assert_eq!(parser(""), Err(Err::Error(Error::new("", ErrorKind::Many1))));
 /// ```
-pub fn fold_many1<I, O, E, F, G, R>(
+pub fn fold_many1<I, O, E, F, G, H, R>(
   mut f: F,
-  init: R,
+  mut init: H,
   mut g: G,
 ) -> impl FnMut(I) -> IResult<I, R, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   G: FnMut(R, O) -> R,
+  H: FnMut() -> R,
   E: ParseError<I>,
-  R: Clone,
 {
   move |i: I| {
     let _i = i.clone();
-    let init = init.clone();
+    let init = init();
     match f.parse(_i) {
       Err(Err::Error(_)) => Err(Err::Error(E::from_error_kind(i, ErrorKind::Many1))),
       Err(e) => Err(e),
@@ -826,13 +732,15 @@ where
 
         loop {
           let _input = input.clone();
+          let len = input.input_len();
           match f.parse(_input) {
             Err(Err::Error(_)) => {
               break;
             }
             Err(e) => return Err(e),
             Ok((i, o)) => {
-              if i == input {
+              // infinite loop check: the parser must always consume
+              if i.input_len() == len {
                 return Err(Err::Failure(E::from_error_kind(i, ErrorKind::Many1)));
               }
 
@@ -848,18 +756,6 @@ where
   }
 }
 
-#[doc(hidden)]
-pub fn fold_many1c<I, O, E, F, G, R>(i: I, f: F, init: R, g: G) -> IResult<I, R, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  G: FnMut(R, O) -> R,
-  E: ParseError<I>,
-  R: Clone,
-{
-  fold_many1(f, init, g)(i)
-}
-
 /// Applies a parser `n` times or until it fails and accumulates
 /// the results using a given function and initial value.
 /// Fails if the embedded parser does not succeed at least `m`
@@ -868,7 +764,7 @@ where
 /// * `m` The minimum number of iterations.
 /// * `n` The maximum number of iterations.
 /// * `f` The parser to apply.
-/// * `init` The initial value.
+/// * `init` A function returning the initial value.
 /// * `g` The function that combines a result of `f` with
 ///       the current accumulator.
 /// ```rust
@@ -882,7 +778,7 @@ where
 ///     0,
 ///     2,
 ///     tag("abc"),
-///     Vec::new(),
+///     Vec::new,
 ///     |mut acc: Vec<_>, item| {
 ///       acc.push(item);
 ///       acc
@@ -896,27 +792,32 @@ where
 /// assert_eq!(parser(""), Ok(("", vec![])));
 /// assert_eq!(parser("abcabcabc"), Ok(("abc", vec!["abc", "abc"])));
 /// ```
-pub fn fold_many_m_n<I, O, E, F, G, R>(
+pub fn fold_many_m_n<I, O, E, F, G, H, R>(
   min: usize,
   max: usize,
   mut parse: F,
-  init: R,
+  mut init: H,
   mut fold: G,
 ) -> impl FnMut(I) -> IResult<I, R, E>
 where
-  I: Clone + PartialEq,
+  I: Clone + InputLength,
   F: Parser<I, O, E>,
   G: FnMut(R, O) -> R,
+  H: FnMut() -> R,
   E: ParseError<I>,
-  R: Clone,
 {
   move |mut input: I| {
-    let mut acc = init.clone();
+    if min > max {
+      return Err(Err::Failure(E::from_error_kind(input, ErrorKind::ManyMN)));
+    }
+
+    let mut acc = init();
     for count in 0..max {
+      let len = input.input_len();
       match parse.parse(input.clone()) {
         Ok((tail, value)) => {
-          // do not allow parsers that do not consume input (causes infinite loops)
-          if tail == input {
+          // infinite loop check: the parser must always consume
+          if tail.input_len() == len {
             return Err(Err::Error(E::from_error_kind(tail, ErrorKind::ManyMN)));
           }
 
@@ -937,25 +838,6 @@ where
 
     Ok((input, acc))
   }
-}
-
-#[doc(hidden)]
-pub fn fold_many_m_nc<I, O, E, F, G, R>(
-  input: I,
-  min: usize,
-  max: usize,
-  parse: F,
-  init: R,
-  fold: G,
-) -> IResult<I, R, E>
-where
-  I: Clone + PartialEq,
-  F: Fn(I) -> IResult<I, O, E>,
-  G: Fn(R, O) -> R,
-  E: ParseError<I>,
-  R: Clone,
-{
-  fold_many_m_n(min, max, parse, init, fold)(input)
 }
 
 /// Gets a number from the parser and returns a
@@ -1008,6 +890,7 @@ where
 /// `length_value` will return an error.
 /// # Arguments
 /// * `f` The parser to apply.
+/// * `g` The parser to apply on the subslice.
 /// ```rust
 /// # #[macro_use] extern crate nom;
 /// # use nom::{Err, error::{Error, ErrorKind}, Needed, IResult};
@@ -1052,21 +935,9 @@ where
   }
 }
 
-#[doc(hidden)]
-pub fn length_valuec<I, O, N, E, F, G>(i: I, f: F, g: G) -> IResult<I, O, E>
-where
-  I: Clone + InputLength + InputTake,
-  N: ToUsize,
-  F: Fn(I) -> IResult<I, N, E>,
-  G: Fn(I) -> IResult<I, O, E>,
-  E: ParseError<I>,
-{
-  length_value(f, g)(i)
-}
-
 /// Gets a number from the first parser,
 /// then applies the second parser that many times.
-/// Arguments
+/// # Arguments
 /// * `f` The parser to apply to obtain the count.
 /// * `g` The parser to apply repeatedly.
 /// ```rust

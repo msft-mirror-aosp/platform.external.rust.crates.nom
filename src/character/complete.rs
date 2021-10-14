@@ -2,11 +2,15 @@
 //!
 //! Functions recognizing specific characters.
 
+use crate::branch::alt;
+use crate::combinator::opt;
 use crate::error::ErrorKind;
 use crate::error::ParseError;
 use crate::internal::{Err, IResult};
 use crate::lib::std::ops::{Range, RangeFrom, RangeTo};
-use crate::traits::{AsChar, FindToken, InputIter, InputLength, InputTakeAtPosition, Slice};
+use crate::traits::{
+  AsChar, FindToken, InputIter, InputLength, InputTake, InputTakeAtPosition, Slice,
+};
 use crate::traits::{Compare, CompareResult};
 
 /// Recognizes one character.
@@ -684,10 +688,134 @@ where
   )
 }
 
+pub(crate) fn sign<T, E: ParseError<T>>(input: T) -> IResult<T, bool, E>
+where
+  T: Clone + InputTake,
+  T: for<'a> Compare<&'a [u8]>,
+{
+  use crate::bytes::complete::tag;
+  use crate::combinator::value;
+
+  let (i, opt_sign) = opt(alt((
+    value(false, tag(&b"-"[..])),
+    value(true, tag(&b"+"[..])),
+  )))(input)?;
+  let sign = opt_sign.unwrap_or(true);
+
+  Ok((i, sign))
+}
+
+#[doc(hidden)]
+macro_rules! ints {
+    ($($t:tt)+) => {
+        $(
+        /// will parse a number in text form to a number
+        ///
+        /// *Complete version*: can parse until the end of input.
+        pub fn $t<T, E: ParseError<T>>(input: T) -> IResult<T, $t, E>
+            where
+            T: InputIter + Slice<RangeFrom<usize>> + InputLength + InputTake + Clone,
+            <T as InputIter>::Item: AsChar,
+            T: for <'a> Compare<&'a[u8]>,
+            {
+                let (i, sign) = sign(input.clone())?;
+
+                if i.input_len() == 0 {
+                    return Err(Err::Error(E::from_error_kind(input, ErrorKind::Digit)));
+                }
+
+                let mut value: $t = 0;
+                if sign {
+                    for (pos, c) in i.iter_indices() {
+                        match c.as_char().to_digit(10) {
+                            None => {
+                                if pos == 0 {
+                                    return Err(Err::Error(E::from_error_kind(input, ErrorKind::Digit)));
+                                } else {
+                                    return Ok((i.slice(pos..), value));
+                                }
+                            },
+                            Some(d) => match value.checked_mul(10).and_then(|v| v.checked_add(d as $t)) {
+                                None => return Err(Err::Error(E::from_error_kind(input, ErrorKind::Digit))),
+                                Some(v) => value = v,
+                            }
+                        }
+                    }
+                } else {
+                    for (pos, c) in i.iter_indices() {
+                        match c.as_char().to_digit(10) {
+                            None => {
+                                if pos == 0 {
+                                    return Err(Err::Error(E::from_error_kind(input, ErrorKind::Digit)));
+                                } else {
+                                    return Ok((i.slice(pos..), value));
+                                }
+                            },
+                            Some(d) => match value.checked_mul(10).and_then(|v| v.checked_sub(d as $t)) {
+                                None => return Err(Err::Error(E::from_error_kind(input, ErrorKind::Digit))),
+                                Some(v) => value = v,
+                            }
+                        }
+                    }
+                }
+
+                Ok((i.slice(i.input_len()..), value))
+            }
+        )+
+    }
+}
+
+ints! { i8 i16 i32 i64 i128 }
+
+#[doc(hidden)]
+macro_rules! uints {
+    ($($t:tt)+) => {
+        $(
+        /// will parse a number in text form to a number
+        ///
+        /// *Complete version*: can parse until the end of input.
+        pub fn $t<T, E: ParseError<T>>(input: T) -> IResult<T, $t, E>
+            where
+            T: InputIter + Slice<RangeFrom<usize>> + InputLength,
+            <T as InputIter>::Item: AsChar,
+            {
+                let i = input;
+
+                if i.input_len() == 0 {
+                    return Err(Err::Error(E::from_error_kind(i, ErrorKind::Digit)));
+                }
+
+                let mut value: $t = 0;
+                for (pos, c) in i.iter_indices() {
+                    match c.as_char().to_digit(10) {
+                        None => {
+                            if pos == 0 {
+                                return Err(Err::Error(E::from_error_kind(i, ErrorKind::Digit)));
+                            } else {
+                                return Ok((i.slice(pos..), value));
+                            }
+                        },
+                        Some(d) => match value.checked_mul(10).and_then(|v| v.checked_add(d as $t)) {
+                            None => return Err(Err::Error(E::from_error_kind(i, ErrorKind::Digit))),
+                            Some(v) => value = v,
+                        }
+                    }
+                }
+
+                Ok((i.slice(i.input_len()..), value))
+            }
+        )+
+    }
+}
+
+uints! { u8 u16 u32 u64 u128 }
+
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::internal::Err;
+  use crate::traits::ParseTo;
+  use proptest::prelude::*;
 
   macro_rules! assert_parse(
     ($left: expr, $right: expr) => {
@@ -936,12 +1064,10 @@ mod tests {
 
   #[test]
   fn full_line_windows() {
-    //let not_line_ending = |i:&[u8]| take_while(|c| c != b'\r' && c != b'\n')(i);
-
-    named!(
-      take_full_line<(&[u8], &[u8])>,
-      tuple!(not_line_ending, line_ending)
-    );
+    use crate::sequence::pair;
+    fn take_full_line(i: &[u8]) -> IResult<&[u8], (&[u8], &[u8])> {
+      pair(not_line_ending, line_ending)(i)
+    }
     let input = b"abc\r\n";
     let output = take_full_line(input);
     assert_eq!(output, Ok((&b""[..], (&b"abc"[..], &b"\r\n"[..]))));
@@ -949,11 +1075,10 @@ mod tests {
 
   #[test]
   fn full_line_unix() {
-    //let not_line_ending = |i:&[u8]| take_while(|c| c != b'\n')(i);
-    named!(
-      take_full_line<(&[u8], &[u8])>,
-      tuple!(not_line_ending, line_ending)
-    );
+    use crate::sequence::pair;
+    fn take_full_line(i: &[u8]) -> IResult<&[u8], (&[u8], &[u8])> {
+      pair(not_line_ending, line_ending)(i)
+    }
     let input = b"abc\n";
     let output = take_full_line(input);
     assert_eq!(output, Ok((&b""[..], (&b"abc"[..], &b"\n"[..]))));
@@ -1019,5 +1144,66 @@ mod tests {
       line_ending("\ra"),
       Err(Err::Error(error_position!("\ra", ErrorKind::CrLf)))
     );
+  }
+
+  fn digit_to_i16(input: &str) -> IResult<&str, i16> {
+    let i = input;
+    let (i, opt_sign) = opt(alt((char('+'), char('-'))))(i)?;
+    let sign = match opt_sign {
+      Some('+') => true,
+      Some('-') => false,
+      _ => true,
+    };
+
+    let (i, s) = match digit1::<_, crate::error::Error<_>>(i) {
+      Ok((i, s)) => (i, s),
+      Err(_) => {
+        return Err(Err::Error(crate::error::Error::from_error_kind(
+          input,
+          ErrorKind::Digit,
+        )))
+      }
+    };
+
+    match s.parse_to() {
+      Some(n) => {
+        if sign {
+          Ok((i, n))
+        } else {
+          Ok((i, -n))
+        }
+      }
+      None => Err(Err::Error(crate::error::Error::from_error_kind(
+        i,
+        ErrorKind::Digit,
+      ))),
+    }
+  }
+
+  fn digit_to_u32(i: &str) -> IResult<&str, u32> {
+    let (i, s) = digit1(i)?;
+    match s.parse_to() {
+      Some(n) => Ok((i, n)),
+      None => Err(Err::Error(crate::error::Error::from_error_kind(
+        i,
+        ErrorKind::Digit,
+      ))),
+    }
+  }
+
+  proptest! {
+    #[test]
+    fn ints(s in "\\PC*") {
+        let res1 = digit_to_i16(&s);
+        let res2 = i16(s.as_str());
+        assert_eq!(res1, res2);
+    }
+
+    #[test]
+    fn uints(s in "\\PC*") {
+        let res1 = digit_to_u32(&s);
+        let res2 = u32(s.as_str());
+        assert_eq!(res1, res2);
+    }
   }
 }
