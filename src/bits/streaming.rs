@@ -1,15 +1,13 @@
-//! Bit level parsers
+//! bit level parsers
 //!
 
 use crate::error::{ErrorKind, ParseError};
 use crate::internal::{Err, IResult, Needed};
-use crate::lib::std::ops::{AddAssign, Div, RangeFrom, Shl, Shr};
+use crate::lib::std::ops::{AddAssign, RangeFrom, Shl, Shr, Div};
 use crate::traits::{InputIter, InputLength, Slice, ToUsize};
 
-/// Generates a parser taking `count` bits
-pub fn take<I, O, C, E: ParseError<(I, usize)>>(
-  count: C,
-) -> impl Fn((I, usize)) -> IResult<(I, usize), O, E>
+/// generates a parser taking `count` bits
+pub fn take<I, O, C, E: ParseError<(I, usize)>>(count: C) -> impl Fn((I, usize)) -> IResult<(I, usize), O, E>
 where
   I: Slice<RangeFrom<usize>> + InputIter<Item = u8> + InputLength,
   C: ToUsize,
@@ -22,11 +20,11 @@ where
     } else {
       let cnt = (count + bit_offset).div(8);
       if input.input_len() * 8 < count + bit_offset {
-        Err(Err::Incomplete(Needed::new(count as usize)))
+        Err(Err::Incomplete(Needed::Size(count as usize)))
       } else {
-        let mut acc: O = (0 as u8).into();
-        let mut offset: usize = bit_offset;
-        let mut remaining: usize = count;
+        let mut acc:O             = (0 as u8).into();
+        let mut offset: usize     = bit_offset;
+        let mut remaining: usize  = count;
         let mut end_offset: usize = 0;
 
         for byte in input.iter_elements().take(cnt + 1) {
@@ -49,17 +47,14 @@ where
             offset = 0;
           }
         }
-        Ok(((input.slice(cnt..), end_offset), acc))
+        Ok(( (input.slice(cnt..), end_offset) , acc))
       }
     }
   }
 }
 
-/// Generates a parser taking `count` bits and comparing them to `pattern`
-pub fn tag<I, O, C, E: ParseError<(I, usize)>>(
-  pattern: O,
-  count: C,
-) -> impl Fn((I, usize)) -> IResult<(I, usize), O, E>
+/// generates a parser taking `count` bits and comparing them to `pattern`
+pub fn tag<I, O, C, E: ParseError<(I, usize)>>(pattern: O, count: C) -> impl Fn((I, usize)) -> IResult<(I, usize), O, E>
 where
   I: Slice<RangeFrom<usize>> + InputIter<Item = u8> + InputLength + Clone,
   C: ToUsize,
