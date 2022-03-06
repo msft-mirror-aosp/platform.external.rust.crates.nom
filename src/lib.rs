@@ -136,13 +136,13 @@
 //! A parser in nom is a function which, for an input type `I`, an output type `O`
 //! and an optional error type `E`, will have the following signature:
 //!
-//! ```rust,ignore
+//! ```rust,compile_fail
 //! fn parser(input: I) -> IResult<I, O, E>;
 //! ```
 //!
 //! Or like this, if you don't want to specify a custom error type (it will be `(I, ErrorKind)` by default):
 //!
-//! ```rust,ignore
+//! ```rust,compile_fail
 //! fn parser(input: I) -> IResult<I, O>;
 //! ```
 //!
@@ -445,29 +445,21 @@ pub use self::str::*;
 #[macro_use]
 pub mod error;
 
-#[macro_use]
+pub mod combinator;
 mod internal;
 mod traits;
 #[macro_use]
-pub mod combinator;
-#[macro_use]
 pub mod branch;
-#[macro_use]
-pub mod sequence;
-#[macro_use]
 pub mod multi;
+pub mod sequence;
 
-#[macro_use]
-pub mod bytes;
-#[macro_use]
 pub mod bits;
+pub mod bytes;
 
-#[macro_use]
 pub mod character;
 
 mod str;
 
-#[macro_use]
 pub mod number;
 
 #[cfg(feature = "docsrs")]
