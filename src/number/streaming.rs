@@ -1395,6 +1395,40 @@ where
   )(input)
 }
 
+// workaround until issues with minimal-lexical are fixed
+#[doc(hidden)]
+pub fn recognize_float_or_exceptions<T, E: ParseError<T>>(input: T) -> IResult<T, T, E>
+where
+  T: Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
+  T: Clone + Offset,
+  T: InputIter + InputTake + InputLength + Compare<&'static str>,
+  <T as InputIter>::Item: AsChar,
+  T: InputTakeAtPosition,
+  <T as InputTakeAtPosition>::Item: AsChar,
+{
+  alt((
+    |i: T| {
+      recognize_float::<_, E>(i.clone()).map_err(|e| match e {
+        crate::Err::Error(_) => crate::Err::Error(E::from_error_kind(i, ErrorKind::Float)),
+        crate::Err::Failure(_) => crate::Err::Failure(E::from_error_kind(i, ErrorKind::Float)),
+        crate::Err::Incomplete(needed) => crate::Err::Incomplete(needed),
+      })
+    },
+    |i: T| {
+      crate::bytes::streaming::tag_no_case::<_, _, E>("nan")(i.clone())
+        .map_err(|_| crate::Err::Error(E::from_error_kind(i, ErrorKind::Float)))
+    },
+    |i: T| {
+      crate::bytes::streaming::tag_no_case::<_, _, E>("inf")(i.clone())
+        .map_err(|_| crate::Err::Error(E::from_error_kind(i, ErrorKind::Float)))
+    },
+    |i: T| {
+      crate::bytes::streaming::tag_no_case::<_, _, E>("infinity")(i.clone())
+        .map_err(|_| crate::Err::Error(E::from_error_kind(i, ErrorKind::Float)))
+    },
+  ))(input)
+}
+
 /// Recognizes a floating point number in text format and returns the integer, fraction and exponent parts of the input data
 ///
 /// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if there is not enough data.
@@ -1413,7 +1447,7 @@ where
   let (i, sign) = sign(input.clone())?;
 
   //let (i, zeroes) = take_while(|c: <T as InputTakeAtPosition>::Item| c.as_char() == '0')(i)?;
-  let (i, zeroes) = match i.as_bytes().iter().position(|c| *c != b'0' as u8) {
+  let (i, zeroes) = match i.as_bytes().iter().position(|c| *c != b'0') {
     Some(index) => i.take_split(index),
     None => i.take_split(i.input_len()),
   };
@@ -1422,7 +1456,7 @@ where
   let (i, mut integer) = match i
     .as_bytes()
     .iter()
-    .position(|c| !(*c >= b'0' as u8 && *c <= b'9' as u8))
+    .position(|c| !(*c >= b'0' && *c <= b'9'))
   {
     Some(index) => i.take_split(index),
     None => i.take_split(i.input_len()),
@@ -1442,8 +1476,8 @@ where
     let mut zero_count = 0usize;
     let mut position = None;
     for (pos, c) in i.as_bytes().iter().enumerate() {
-      if *c >= b'0' as u8 && *c <= b'9' as u8 {
-        if *c == b'0' as u8 {
+      if *c >= b'0' && *c <= b'9' {
+        if *c == b'0' {
           zero_count += 1;
         } else {
           zero_count = 0;
@@ -1512,7 +1546,7 @@ pub fn float<T, E: ParseError<T>>(input: T) -> IResult<T, f32, E>
 where
   T: Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
   T: Clone + Offset,
-  T: InputIter + InputLength + InputTake + crate::traits::ParseTo<i32>,
+  T: InputIter + InputLength + InputTake + crate::traits::ParseTo<f32> + Compare<&'static str>,
   <T as InputIter>::Item: AsChar,
   <T as InputIter>::IterElem: Clone,
   T: InputTakeAtPosition,
@@ -1520,6 +1554,7 @@ where
   T: AsBytes,
   T: for<'a> Compare<&'a [u8]>,
 {
+  /*
   let (i, (sign, integer, fraction, exponent)) = recognize_float_parts(input)?;
 
   let mut float: f32 = minimal_lexical::parse_float(
@@ -1532,19 +1567,28 @@ where
   }
 
   Ok((i, float))
+  */
+  let (i, s) = recognize_float_or_exceptions(input)?;
+  match s.parse_to() {
+    Some(f) => (Ok((i, f))),
+    None => Err(crate::Err::Error(E::from_error_kind(
+      i,
+      crate::error::ErrorKind::Float,
+    ))),
+  }
 }
 
-/// Recognizes floating point number in text format and returns a f32.
+/// Recognizes floating point number in text format and returns a f64.
 ///
 /// *Streaming version*: Will return `Err(nom::Err::Incomplete(_))` if there is not enough data.
 ///
 /// ```rust
 /// # use nom::{Err, error::ErrorKind, Needed};
 /// # use nom::Needed::Size;
-/// use nom::number::complete::float;
+/// use nom::number::complete::double;
 ///
 /// let parser = |s| {
-///   float(s)
+///   double(s)
 /// };
 ///
 /// assert_eq!(parser("11e-1"), Ok(("", 1.1)));
@@ -1556,7 +1600,7 @@ pub fn double<T, E: ParseError<T>>(input: T) -> IResult<T, f64, E>
 where
   T: Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
   T: Clone + Offset,
-  T: InputIter + InputLength + InputTake + crate::traits::ParseTo<i32>,
+  T: InputIter + InputLength + InputTake + crate::traits::ParseTo<f64> + Compare<&'static str>,
   <T as InputIter>::Item: AsChar,
   <T as InputIter>::IterElem: Clone,
   T: InputTakeAtPosition,
@@ -1564,6 +1608,7 @@ where
   T: AsBytes,
   T: for<'a> Compare<&'a [u8]>,
 {
+  /*
   let (i, (sign, integer, fraction, exponent)) = recognize_float_parts(input)?;
 
   let mut float: f64 = minimal_lexical::parse_float(
@@ -1576,6 +1621,15 @@ where
   }
 
   Ok((i, float))
+  */
+  let (i, s) = recognize_float_or_exceptions(input)?;
+  match s.parse_to() {
+    Some(f) => (Ok((i, f))),
+    None => Err(crate::Err::Error(E::from_error_kind(
+      i,
+      crate::error::ErrorKind::Float,
+    ))),
+  }
 }
 
 #[cfg(test)]
@@ -1583,7 +1637,6 @@ mod tests {
   use super::*;
   use crate::error::ErrorKind;
   use crate::internal::{Err, Needed};
-  use crate::traits::ParseTo;
   use proptest::prelude::*;
 
   macro_rules! assert_parse(
@@ -2023,6 +2076,7 @@ mod tests {
       "12.34",
       "-1.234E-12",
       "-1.234e-12",
+      "0.00000000000000000087",
     ];
 
     for test in test_cases.drain(..) {
@@ -2046,6 +2100,14 @@ mod tests {
       recognize_float(remaining_exponent),
       Err(Err::Incomplete(Needed::new(1)))
     );
+
+    let (_i, nan) = float::<_, ()>("NaN").unwrap();
+    assert!(nan.is_nan());
+
+    let (_i, inf) = float::<_, ()>("inf").unwrap();
+    assert!(inf.is_infinite());
+    let (_i, inf) = float::<_, ()>("infinite").unwrap();
+    assert!(inf.is_infinite());
   }
 
   #[test]
@@ -2131,7 +2193,9 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "std")]
   fn parse_f64(i: &str) -> IResult<&str, f64, ()> {
+    use crate::traits::ParseTo;
     match recognize_float(i) {
       Err(e) => Err(e),
       Ok((i, s)) => {
