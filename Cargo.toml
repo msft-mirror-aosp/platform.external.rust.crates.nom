@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "nom"
-version = "7.0.0"
+version = "7.1.0"
 authors = ["contact@geoffroycouprie.com"]
 include = ["CHANGELOG.md", "LICENSE", "README.md", ".gitignore", "Cargo.toml", "src/*.rs", "src/*/*.rs", "tests/*.rs", "doc/nom_recipes.md", "build.rs"]
 autoexamples = false
@@ -31,13 +31,14 @@ lto = true
 codegen-units = 1
 debug = true
 
-[lib]
-bench = false
-
 [[example]]
 name = "json"
 path = "examples/json.rs"
 required-features = ["alloc"]
+
+[[example]]
+name = "iterator"
+path = "examples/iterator.rs"
 
 [[example]]
 name = "s_expression"
@@ -55,9 +56,6 @@ name = "arithmetic"
 [[test]]
 name = "arithmetic_ast"
 required-features = ["alloc"]
-
-[[test]]
-name = "blockbuf-arithmetic"
 
 [[test]]
 name = "css"
@@ -100,50 +98,15 @@ name = "reborrow_fold"
 [[test]]
 name = "fnmut"
 required-features = ["alloc"]
-
-[[bench]]
-name = "arithmetic"
-path = "benches/arithmetic.rs"
-harness = false
-
-[[bench]]
-name = "number"
-path = "benches/number.rs"
-harness = false
-
-[[bench]]
-name = "http"
-path = "benches/http.rs"
-harness = false
-
-[[bench]]
-name = "ini"
-path = "benches/ini.rs"
-harness = false
-
-[[bench]]
-name = "ini_str"
-path = "benches/ini_str.rs"
-harness = false
-
-[[bench]]
-name = "json"
-path = "benches/json.rs"
-harness = false
 [dependencies.memchr]
-version = "2.0"
+version = "2.3"
 default-features = false
 
 [dependencies.minimal-lexical]
-version = "0.1.2"
-[dev-dependencies.criterion]
-version = "0.3"
-
+version = "0.2.0"
+default-features = false
 [dev-dependencies.doc-comment]
 version = "0.3"
-
-[dev-dependencies.jemallocator]
-version = "^0.3"
 
 [dev-dependencies.proptest]
 version = "1.0.0"
@@ -154,7 +117,7 @@ version = "0.9"
 alloc = []
 default = ["std"]
 docsrs = []
-std = ["alloc", "memchr/use_std"]
+std = ["alloc", "memchr/std", "minimal-lexical/std"]
 [badges.coveralls]
 branch = "master"
 repository = "Geal/nom"
