@@ -2,8 +2,8 @@
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Join the chat at https://gitter.im/Geal/nom](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/Geal/nom?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-[![Build Status](https://travis-ci.org/Geal/nom.svg?branch=master)](https://travis-ci.org/Geal/nom)
-[![Coverage Status](https://coveralls.io/repos/Geal/nom/badge.svg?branch=master)](https://coveralls.io/r/Geal/nom?branch=master)
+[![Build Status](https://github.com/Geal/nom/actions/workflows/ci.yml/badge.svg)](https://github.com/Geal/nom/actions/workflows/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/github/Geal/nom/badge.svg?branch=master)](https://coveralls.io/github/Geal/nom?branch=master)
 [![Crates.io Version](https://img.shields.io/crates/v/nom.svg)](https://crates.io/crates/nom)
 [![Minimum rustc version](https://img.shields.io/badge/rustc-1.48.0+-lightgray.svg)](#rust-version-requirements)
 
@@ -248,7 +248,9 @@ Here is a (non exhaustive) list of known projects using nom:
 [Elm](https://github.com/cout970/Elm-interpreter),
 [SystemVerilog](https://github.com/dalance/sv-parser),
 [Turtle](https://github.com/vandenoever/rome/tree/master/src/io/turtle),
-[CSML](https://github.com/CSML-by-Clevy/csml-interpreter)
+[CSML](https://github.com/CSML-by-Clevy/csml-interpreter),
+[Wasm](https://github.com/Strytyp/wasm-nom),
+[Pseudocode](https://github.com/Gungy2/pseudocode)
 - Interface definition formats: [Thrift](https://github.com/thehydroimpulse/thrust)
 - Audio, video and image formats:
 [GIF](https://github.com/Geal/gif.rs),
