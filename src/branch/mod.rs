@@ -46,7 +46,7 @@ pub trait Alt<I, O, E> {
 /// like this: `alt(parser_a, alt(parser_b, parser_c))`
 ///
 /// ```rust
-/// # #[macro_use] extern crate nom;
+/// # use nom::error_position;
 /// # use nom::{Err,error::ErrorKind, Needed, IResult};
 /// use nom::character::complete::{alpha1, digit1};
 /// use nom::branch::alt;
@@ -89,7 +89,6 @@ pub trait Permutation<I, O, E> {
 /// tuple of the parser results.
 ///
 /// ```rust
-/// # #[macro_use] extern crate nom;
 /// # use nom::{Err,error::{Error, ErrorKind}, Needed, IResult};
 /// use nom::character::complete::{alpha1, digit1};
 /// use nom::branch::permutation;
@@ -182,6 +181,15 @@ macro_rules! alt_trait_inner(
 );
 
 alt_trait!(A B C D E F G H I J K L M N O P Q R S T U);
+
+// Manually implement Alt for (A,), the 1-tuple type
+impl<Input, Output, Error: ParseError<Input>, A: Parser<Input, Output, Error>>
+  Alt<Input, Output, Error> for (A,)
+{
+  fn choice(&mut self, input: Input) -> IResult<Input, Output, Error> {
+    self.0.parse(input)
+  }
+}
 
 macro_rules! permutation_trait(
   (
