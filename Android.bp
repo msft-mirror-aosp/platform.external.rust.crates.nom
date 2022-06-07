@@ -35,4 +35,8 @@ rust_library {
         "libmemchr",
         "libminimal_lexical",
     ],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.virt",
+    ],
 }
