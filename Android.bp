@@ -23,14 +23,13 @@ rust_library {
     host_supported: true,
     crate_name: "nom",
     cargo_env_compat: true,
-    cargo_pkg_version: "7.1.0",
+    cargo_pkg_version: "7.1.1",
     srcs: ["src/lib.rs"],
     edition: "2018",
     features: [
         "alloc",
         "std",
     ],
-    cfgs: ["stable_i128"],
     rustlibs: [
         "libmemchr",
         "libminimal_lexical",
